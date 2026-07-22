@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/project-env.sh"
+
+cd "$ARDUPILOT_DIR"
+export PATH="$ARDUPILOT_VENV/bin:/usr/lib/ccache:$ARDUPILOT_DIR/Tools/autotest:$REPO_DIR/scripts:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+unset PYTHONPATH
+
+exec "$ARDUPILOT_VENV/bin/python" ./Tools/autotest/sim_vehicle.py \
+  -v ArduCopter \
+  -f gazebo-iris \
+  --model JSON \
+  --add-param-file="$REPO_DIR/config/my-drone.parm" \
+  --out=127.0.0.1:14550 \
+  --out=tcpin:127.0.0.1:5772 \
+  --out=tcpin:127.0.0.1:5773 \
+  --mavproxy-args=--daemon \
+  "$@"

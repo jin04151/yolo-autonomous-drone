@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/project-env.sh"
+YOLO_WEIGHTS="${YOLO_WEIGHTS:-$REPO_DIR/weights/best_v5.pt}"
+
+export YOLOV5_DIR YOLO_WEIGHTS
+exec "$YOLO_VENV/bin/python" -u "$REPO_DIR/src/vision/gazebo_yolo.py" \
+  --weights "$YOLO_WEIGHTS" \
+  --device "${YOLO_DEVICE:-0}" \
+  --no-view \
+  --handoff-on-detect \
+  --mavlink tcp:127.0.0.1:5772 \
+  "$@"

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/project-env.sh"
+
+camera_enable_topic="/world/ensamb_iris_runway/model/ensamb_with_gimbal/model/ensamb_with_standoffs/link/down_camera_link/sensor/down_camera/image/enable_streaming"
+gz_pid=""
+yolo_pid=""
+
+cleanup() {
+  trap - EXIT INT TERM
+  if [[ -n "$yolo_pid" ]] && kill -0 "$yolo_pid" 2>/dev/null; then
+    kill "$yolo_pid" 2>/dev/null || true
+    wait "$yolo_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$gz_pid" ]] && kill -0 "$gz_pid" 2>/dev/null; then
+    kill "$gz_pid" 2>/dev/null || true
+    wait "$gz_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+env -u WAYLAND_DISPLAY gz sim -v4 -r "$REPO_DIR/sim/gazebo/worlds/ensamb_iris_runway.sdf" "$@" &
+gz_pid=$!
+
+for _ in {1..60}; do
+  if ! kill -0 "$gz_pid" 2>/dev/null; then
+    wait "$gz_pid"
+    exit $?
+  fi
+  if gz topic -l 2>/dev/null | grep -Fqx "$camera_enable_topic"; then
+    "$SCRIPT_DIR/yolo-basket-gazebo" --open-timeout 30 &
+    yolo_pid=$!
+    break
+  fi
+  sleep 1
+done
+
+if [[ -z "$yolo_pid" ]]; then
+  echo "warning: Gazebo camera was not ready after 60 seconds; YOLO was not started" >&2
+fi
+
+wait "$gz_pid"

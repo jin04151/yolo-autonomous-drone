@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/project-env.sh"
+ALTITUDE="${1:-2}"
+MAVLINK="${MAVLINK:-tcp:127.0.0.1:5772}"
+
+exec "$YOLO_VENV/bin/python" "$REPO_DIR/src/mavlink/mavlink_takeoff.py" \
+  --mavlink "$MAVLINK" \
+  --alt "$ALTITUDE"

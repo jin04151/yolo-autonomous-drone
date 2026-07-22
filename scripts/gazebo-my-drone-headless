@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/project-env.sh"
+
+exec env -u WAYLAND_DISPLAY gz sim -s -r -v4 "$REPO_DIR/sim/gazebo/worlds/ensamb_iris_runway.sdf" "$@"

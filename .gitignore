@@ -203,6 +203,17 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Project-local runtime artifacts and private model weights
+weights/*.pt
+!weights/README.md
+sim/gazebo/models/ensamb_with_standoffs/meshes/*.STL
+sim/gazebo/models/target_basket/meshes/*.stl
+logs/
+*.tlog
+*.tlog.raw
+core
+core.*
+
 # Ruff stuff:
 .ruff_cache/
 

@@ -1,136 +1,152 @@
 # YOLO Autonomous Drone
 
-Gazebo Sim, ArduPilot SITL, Mission Planner, YOLOv5, MAVLink를 연결해 표적을 탐지하고 접근하는 드론 프로젝트입니다. 시뮬레이션에서 임무 흐름을 검증한 뒤 Jetson Nano와 Pixhawk 기반 실기체로 옮기는 것을 목표로 합니다.
+Gazebo Sim, ArduPilot, Mission Planner, YOLOv5를 연결해 waypoint 비행 중 바구니를 탐지하고 `GUIDED` 제어로 접근하는 드론 프로젝트입니다.
 
-마지막 로컬 검증일: **2026-07-23**
+마지막 검증: **2026-07-23, Windows 11 + WSL2 Ubuntu 24.04**
+
+## 역할과 범위
+
+이 저장소가 관리하는 범위:
+
+- Gazebo 월드, 근사 드론 형상, 표적 바구니와 하향 카메라
+- ArduPilot SITL 파라미터와 MAVProxy 포트 구성
+- YOLOv5 추론, `AUTO -> GUIDED` 인계, 표적 중심 접근
+- RadioMaster USB joystick의 MAVLink RC override bridge
+- 새 WSL 환경용 설치, 실행, 검증 스크립트
+
+팀 전체 계획과 실기체 작업 기록은 [drone_log](https://github.com/woosun2006-cmyk/drone_log)를 원본으로 사용합니다. 두 저장소에 같은 계획을 복사하지 않습니다.
 
 ## 시스템 구조
 
 ```text
-Mission Planner ─────── MAVLink ───────┐
-                                       v
-Gazebo Sim <── JSON/FDM ──> ArduPilot SITL ──> MAVProxy hub
-    │                                           │
-    │ downward camera                           │ TCP 5772
-    v                                           v
-YOLOv5 detector ──> target controller ──────────┘
-
-RadioMaster joystick ──> RC bridge ── TCP 5773 ──> MAVProxy hub
+Gazebo <--- JSON/FDM ---> ArduPilot SITL ---> MAVProxy hub
+   |                              |              | UDP 14550 -> Mission Planner
+   | downward camera              |              | TCP 5772 -> YOLO controller
+   v                              |              ` TCP 5773 -> joystick bridge
+YOLOv5 ---------------------------'
 ```
 
-- **Gazebo Sim**: 드론 동역학, 잔디 월드, 표적 바구니, 하향 카메라를 시뮬레이션합니다.
-- **ArduPilot SITL**: 자세 안정화, 모터 출력, 비행 모드, waypoint 임무를 담당합니다.
-- **Mission Planner**: 비행 상태 확인, 미션 작성, ARM 및 모드 변경에 사용합니다.
-- **YOLOv5 제어기**: AUTO 비행 중 표적을 탐지하고 GUIDED 모드로 전환해 표적 중심으로 접근합니다.
-- **조종기**: 비상 시 LOITER, ALT_HOLD 또는 STABILIZE로 전환해 자동제어를 중단합니다.
+MAVProxy는 메시지 허브이며 제어권 중재기는 아닙니다. YOLO는 `GUIDED`에서만 속도 setpoint를 보내고, 조종기가 다른 비행 모드로 전환하면 자동 명령을 중단합니다.
 
-## 팀 문서의 역할
+상세 설계: [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md)
 
-- [drone_log](https://github.com/woosun2006-cmyk/drone_log): 팀 전체 계획, Jetson/Pixhawk 실기체 작업, 비행 준비 기록의 원본
-- 이 저장소: Gazebo/SITL/YOLO 구현, 재현 가능한 설치 절차와 시뮬레이션 시험의 원본
+## 빠른 설치
 
-같은 내용을 두 저장소에 복사해 관리하지 않습니다. 공통 통신 규약은 MAVProxy를 단일 허브로 사용한다는 원칙을 따르고, 변경 시 두 문서가 서로 링크하는 인터페이스 요약만 함께 갱신합니다.
+새 WSL 컴퓨터에서:
 
-## 현재 구현된 흐름
+```bash
+cd ~
+git clone https://github.com/jin04151/yolo-autonomous-drone.git
+cd yolo-autonomous-drone
+bash scripts/setup_gazebo_sitl.sh
+source ~/.bashrc
+```
+
+설치기는 Gazebo Jetty, ArduPilot SITL, `ardupilot_gazebo`, YOLOv5와 Python 환경을 준비합니다. NVIDIA GPU가 보이면 CUDA 12.4용 PyTorch를 설치하고, 없으면 CPU 빌드를 설치합니다.
+
+학습 모델은 Git에 포함하지 않습니다. 승인된 모델을 다음 위치에 둡니다.
+
+```text
+weights/best_v5.pt
+```
+
+모델 체크섬과 외부 경로 사용법: [weights/README.md](weights/README.md)
+
+전체 설치 안내: [docs/GAZEBO_SITL_SETUP.md](docs/GAZEBO_SITL_SETUP.md)
+
+## 실행
+
+터미널 1, Gazebo와 YOLO:
+
+```bash
+gazebo-my-drone
+```
+
+터미널 2, ArduPilot SITL과 MAVProxy:
+
+```bash
+sitl-my-drone
+```
+
+Mission Planner는 UDP `14550`에 연결합니다. GUI의 YOLO 패널은 `/yolo/annotated` topic을 표시합니다.
+
+자동 이륙만 시험하려면:
+
+```bash
+drone-takeoff 2
+```
+
+조종기 연결 후 RC bridge를 실행하려면:
+
+```bash
+joystick-bridge
+```
+
+## 자동 임무 흐름
 
 ```text
 DISARMED
-  -> Mission upload
-  -> ARM
-  -> AUTO waypoint flight (0.5 m/s)
-  -> target detected for 5 consecutive frames
-  -> GUIDED handoff
-  -> highest-confidence target centering
-  -> centered for 1 second
-  -> descend at 0.2 m/s
-  -> hold at 0.8 m relative altitude
+  -> Mission Planner에서 mission write
+  -> ARM + AUTO
+  -> waypoint flight at 0.5 m/s
+  -> 같은 target을 5 frame 연속 탐지
+  -> GUIDED 요청
+  -> 가장 confidence가 높은 target 중심으로 이동
+  -> 중앙에서 1초 유지
+  -> 0.2 m/s로 하강
+  -> 상대고도 0.8m에서 정지
 ```
 
-타깃을 놓치거나 조종기 모드 스위치로 GUIDED를 벗어나면 자동 이동과 하강을 중단합니다. 현재 로직은 착륙하지 않고 표적 위 0.8m에서 호버합니다.
+현재 코드는 바구니 위에서 호버하며 자동 착륙하지 않습니다. 표적을 잃으면 수평·수직 속도 `0`을 보내고, `GUIDED`를 벗어나면 `PILOT_OVERRIDE` 상태로 들어갑니다.
 
-## 검증 환경
+## 프로젝트 구조
 
-| 항목 | 현재 로컬 환경 |
-|---|---|
-| Host | Windows + WSL2 + WSLg |
-| Linux | Ubuntu 24.04.4 LTS |
-| Gazebo | Jetty, Gazebo Sim 10.4.0 |
-| ArduPilot | 4.8.0-dev, commit `ceb710c` |
-| ardupilot_gazebo | commit `082a0fe` 기반 로컬 수정 |
-| Python | 3.12.3 |
-| YOLO | YOLOv5 v7.0, commit `915bbf29` |
-| PyTorch | 2.6.0+cu124 |
-| GPU | NVIDIA RTX 4050 Laptop GPU through WSL CUDA |
-| Weights | `best_v5.pt` |
-
-Gazebo Jetty는 Ubuntu 24.04용 `gz-jetty` 패키지이며 Gazebo Sim 10을 포함합니다. 다른 Gazebo 세대를 사용하면 개발 라이브러리 이름과 플러그인 빌드 설정이 달라집니다.
-
-## 처음 설치하기
-
-새 WSL 컴퓨터에서는 저장소 clone만으로 Gazebo와 SITL이 설치되지 않습니다. 다음 문서의 순서대로 진행하십시오.
-
-1. [Gazebo, SITL, Mission Planner, YOLO 전체 설치 및 실행 안내서](docs/GAZEBO_SITL_SETUP.md)
-2. Gazebo와 ArduPilot 기본 예제를 먼저 검증합니다.
-3. 프로젝트 월드와 제어 코드를 설치합니다.
-4. Mission Planner에서 waypoint 임무를 업로드합니다.
-5. AUTO 비행 중 YOLO의 GUIDED 인계를 확인합니다.
-
-## 현재 저장소 이식 상태
-
-이 저장소는 아직 프로젝트 자산 이관 중입니다. 현재 로컬에서 동작하는 다음 항목은 커밋 전 상태이므로 **현 시점의 fresh clone은 완전 실행형이 아닙니다**.
-
-- `ensamb_iris_runway.sdf` 월드
-- `ensamb_with_standoffs`, `ensamb_with_gimbal`, `target_basket` 모델과 mesh
-- 수정된 `GstCameraPlugin`
-- `gazebo_yolo.py`, `basket_handoff.py`, joystick bridge와 테스트
-- 실행기 `gazebo-my-drone`, `sitl-my-drone`, `yolo-basket-gazebo`
-- YOLO 가중치 `best_v5.pt`
-
-위 파일은 라이선스와 배포 방식을 확인한 뒤 `sim/`, `src/`, `scripts/`, `weights/`로 옮겨야 합니다. 특히 학습 가중치는 일반 Git, Git LFS 또는 GitHub Release 중 하나를 명시적으로 선택해야 합니다.
-
-## 시뮬레이션 정확도 주의
-
-현재 모델은 실제 외형과 측정 질량을 반영했지만, 추력 모델은 실측 추력표가 없는 잠정값입니다.
-
-- 총 시뮬레이션 질량: 약 `1.183kg`
-- 모터: 2212 920KV, 4개
-- ESC: 30A SimonK, 4개
-- 배터리 가정: 3S LiPo
-- 프로펠러: 직경 약 24cm, 피치 잠정 4.5inch
-- 모터 최대 추력 가정: 약 550g/개
-- 하향 카메라: 640x480, 10Hz, 수평 화각 약 157.6deg
-
-따라서 SITL은 **미션 로직, 영상 처리, MAVLink 연결, 상태 전환 검증용**입니다. 실제 기체의 PID, 호버 스로틀, 배터리 거동과 최대 추력을 검증하는 장비로 사용하면 안 됩니다. 실제 비행 전에는 프로펠러 규격, 스로틀별 추력/RPM/전류, 전체 무게중심과 관성값을 측정해야 합니다.
+```text
+config/                  SITL 파라미터와 upstream revision
+docs/                    설치 및 운용 문서
+scripts/                 설치기, 검증기, 실행 명령
+sim/gazebo/models/       드론과 바구니 모델
+sim/gazebo/worlds/       잔디 시험 월드
+src/mavlink/             MAVLink 이륙 도구
+src/vision/              YOLO, 자동 인계, joystick bridge
+tests/                   자동 인계 단위 테스트
+weights/                 로컬 YOLO checkpoint 위치
+```
 
 ## 주요 포트
 
-현재 실행기를 사용하면 아래 포트는 자동 구성되므로 매번 직접 열 필요가 없습니다. 같은 WSL 안에서만 사용할 포트를 외부 인터페이스에 공개하지 마십시오.
+| 포트 | 연결 | 용도 |
+|---|---|---|
+| UDP 9002 | Gazebo <-> SITL | JSON/FDM 센서와 모터 데이터 |
+| TCP 5760 | SITL -> MAVProxy | SITL 기본 MAVLink master |
+| TCP 5772 | YOLO -> MAVProxy | 자동제어 전용 연결 |
+| TCP 5773 | joystick -> MAVProxy | RC bridge 전용 연결 |
+| UDP 14550 | MAVProxy -> Mission Planner | GCS telemetry와 명령 |
+| UDP 5600 | Gazebo -> YOLO | H.264 하향 카메라 영상 |
 
-| 포트 | 필요 여부 | 연결 | 용도 |
-|---|---|---|---|
-| UDP 9002 | 필수 | Gazebo <-> SITL | ArduPilot JSON/FDM 센서·모터 데이터 |
-| TCP 5760 | 필수 | SITL -> MAVProxy | SITL 기본 MAVLink master; 앱 직접 연결 금지 |
-| TCP 5772 | 필수 | YOLO -> MAVProxy | GUIDED controller 전용 hub output |
-| TCP 5773 | 선택 | RC bridge -> MAVProxy | 조종기 bridge 전용 hub output |
-| UDP 14550 | 필수 | MAVProxy -> Mission Planner | GCS telemetry와 명령 |
-| UDP 5600 | 필수 | Gazebo -> YOLO | 현재 하향 카메라 H.264 stream |
+`5772/5773`은 WSL의 `127.0.0.1`에만 열립니다. Windows Mission Planner를 사용할 때만 Windows host IP로 `14550/UDP` 출력을 추가합니다.
 
-`14550`은 Mission Planner가 Windows에서 실행될 때만 Windows host IP로 전달하면 됩니다. `5772/5773`은 Jetson 또는 WSL 내부의 `127.0.0.1`에만 bind합니다. SITL의 기본 `5762/5763` 포트는 프로젝트 애플리케이션에 사용하지 않습니다.
+## 시뮬레이션 한계
 
-## 기준 좌표와 테스트 월드
+- 질량 약 `1.183kg`, 2212 920KV 모터 4개, 30A SimonK ESC, 3S LiPo 가정
+- 프로펠러 직경 약 24cm, 피치 4.5inch와 최대 추력 550g/모터는 잠정값
+- 하향 카메라 640x480, 10Hz, 수평 화각 약 157.6deg
+- 공개 기본 외형과 충돌 형상, 관성은 모두 근사값
 
-- Home: `-35.363262, 149.165237`, elevation `584m`
-- 드론 시작점: Gazebo `(0, 0)`
-- 표적 바구니: Gazebo `(0, 4)`
-- 10m 북쪽 waypoint 예시: `-35.363172, 149.165237`
-- AUTO waypoint 속도: `WP_SPD=0.5m/s` (ArduPilot 4.8-dev)
+따라서 SITL은 영상 처리, MAVLink, 임무 상태 전환 검증용입니다. 실제 PID, 호버 스로틀, 배터리, 추력 검증을 대신하지 않습니다. 시뮬레이션 파라미터를 Pixhawk에 그대로 쓰면 안 됩니다.
 
-ArduPilot 안정 버전에서는 같은 파라미터가 `WPNAV_SPEED`이고 단위가 cm/s일 수 있습니다. 반드시 Mission Planner의 실제 파라미터 목록에서 이름과 단위를 확인하십시오.
+## 검증
 
-## Upstream 문서
+```bash
+bash scripts/validate_setup.sh
+```
 
-- [Gazebo Jetty Ubuntu 설치](https://gazebosim.org/docs/jetty/install_ubuntu/)
+이 명령은 필수 실행 파일, plugin, SDF, Python import와 자동 인계 단위 테스트를 검사합니다. 실행형 smoke test는 설치 안내서의 절차를 따릅니다.
+
+## Upstream
+
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [Gazebo Jetty](https://gazebosim.org/docs/jetty/install_ubuntu/)
 - [ArduPilot SITL with Gazebo](https://ardupilot.org/dev/docs/sitl-with-gazebo.html)
-- [ArduPilot SITL on Linux](https://ardupilot.org/dev/docs/setting-up-sitl-on-linux.html)
-- [ArduPilot Gazebo plugin](https://github.com/ArduPilot/ardupilot_gazebo)
+- [ardupilot_gazebo](https://github.com/ArduPilot/ardupilot_gazebo)
 - [YOLOv5](https://github.com/ultralytics/yolov5)
