@@ -17,6 +17,8 @@
 
 ROS/ROS 2는 이 구성에 필요하지 않습니다.
 
+팀의 하드웨어 작업 순서와 실기체 계획은 [drone_log](https://github.com/woosun2006-cmyk/drone_log)를 원본으로 사용합니다. 이 문서는 그 계획을 복제하지 않고 Gazebo/SITL/YOLO 구현과 두 환경이 공유하는 MAVLink 인터페이스만 설명합니다.
+
 ### 사용 포트
 
 실행기가 대부분 자동으로 구성합니다. 모든 포트를 Windows 방화벽이나 공유기에서 외부에 개방하는 작업은 필요하지 않습니다.
@@ -24,14 +26,13 @@ ROS/ROS 2는 이 구성에 필요하지 않습니다.
 | 포트 | 필요 여부 | 연결 | 용도 |
 |---|---|---|---|
 | UDP 9002 | 필수 | Gazebo <-> SITL | JSON/FDM 센서 입력과 actuator 출력 |
-| TCP 5760 | 필수 | SITL -> MAVProxy | MAVProxy master 연결 |
-| TCP 5763 | 필수 | YOLO -> SITL | GUIDED velocity setpoint 전송 |
+| TCP 5760 | 필수 | SITL -> MAVProxy | SITL source; 앱이 직접 사용하지 않음 |
+| TCP 5772 | 필수 | YOLO -> MAVProxy | GUIDED velocity setpoint 전송 |
+| TCP 5773 | 선택 | RC bridge -> MAVProxy | 조종기 RC override 전송 |
 | UDP 14550 | 필수 | MAVProxy -> Mission Planner | GCS 연결 |
 | UDP 5600 | 필수 | Gazebo -> YOLO | H.264 하향 카메라 영상 |
-| UDP 14551 | 선택 | MAVProxy -> RC bridge/보조 client | 조종기 bridge 사용 시 |
-| TCP 5762 | 선택 | client -> SITL | MAVLink 시험과 디버깅 |
 
-현재 WSL 내부 연결은 `127.0.0.1`을 사용합니다. Windows에서 Mission Planner를 실행하는 경우에만 MAVProxy의 `14550` output을 Windows host IP로 추가합니다. `tcpin:0.0.0.0`처럼 모든 인터페이스에 listen하는 설정은 외부 장치 연결이 필요할 때만 사용하십시오.
+현재 WSL/Jetson 내부 연결은 `127.0.0.1`을 사용합니다. Windows에서 Mission Planner를 실행하는 경우에만 MAVProxy의 `14550` output을 Windows host IP로 추가합니다. `tcpin:0.0.0.0`처럼 모든 인터페이스에 listen하는 설정은 외부 장치 연결이 필요할 때만 사용하십시오.
 
 ## 2. 사전 조건
 
@@ -237,7 +238,8 @@ cd ~/ardupilot
   --model JSON \
   --add-param-file="$HOME/ardupilot_gazebo/config/my-drone.parm" \
   --out=127.0.0.1:14550 \
-  --out=127.0.0.1:14551 \
+  --out=tcpin:127.0.0.1:5772 \
+  --out=tcpin:127.0.0.1:5773 \
   --mavproxy-args=--daemon
 ```
 
@@ -369,6 +371,13 @@ joystick-bridge
 
 YOLO controller는 GUIDED가 아닌 모드를 감지하면 `PILOT_OVERRIDE`로 들어가 자동 setpoint 전송을 중단합니다.
 
+기본 연결 주소:
+
+```text
+YOLO controller: tcp:127.0.0.1:5772
+Joystick bridge: tcp:127.0.0.1:5773
+```
+
 ## 12. 실제 Pixhawk + Jetson으로 전환
 
 시뮬레이션과 실기체의 상위 제어 구조는 비슷하지만 연결 대상이 달라집니다.
@@ -402,8 +411,12 @@ Mission Planner에 전달하려면 Jetson에서:
 mavproxy.py \
   --master=/dev/ttyACM0 \
   --baudrate=115200 \
-  --out=tcpin:0.0.0.0:5760
+  --out=tcpin:127.0.0.1:5772 \
+  --out=tcpin:127.0.0.1:5773 \
+  --out=udpout:<MISSION_PLANNER_IP>:14550
 ```
+
+SITL과 실기체 모두 애플리케이션은 동일한 `5772/5773`에 연결합니다. 전환할 때 바뀌는 것은 MAVProxy의 `--master`뿐입니다. 단, MAVProxy는 메시지를 전달할 뿐 제어권을 중재하지 않으므로 YOLO는 GUIDED에서만 명령하고 조종기 mode switch가 GUIDED를 벗어나면 즉시 중단해야 합니다.
 
 실기체에서 ARM 또는 모터 시험을 하기 전에는 프로펠러를 제거하고 RC, compass, battery monitor, failsafe, flight mode, motor order/direction을 검증해야 합니다. 시뮬레이션 파라미터를 실기체에 그대로 복사하면 안 됩니다.
 
