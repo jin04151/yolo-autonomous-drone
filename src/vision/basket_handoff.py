@@ -75,9 +75,8 @@ def downward_camera_velocity(target, frame_shape, config):
     return VelocityCommand(vx=vx, vy=vy), error_x, error_y
 
 
-def select_control_target(
+def filter_control_detections(
     detections,
-    target_class,
     frame_shape,
     min_area_ratio=0.0002,
     max_area_ratio=0.20,
@@ -98,6 +97,25 @@ def select_control_target(
         )
         if not touches_edge and min_area_ratio <= area_ratio <= max_area_ratio:
             candidates.append(detection)
+    return candidates
+
+
+def select_control_target(
+    detections,
+    target_class,
+    frame_shape,
+    min_area_ratio=0.0002,
+    max_area_ratio=0.20,
+    edge_margin=2,
+):
+    """Select the highest-confidence valid target for automatic control."""
+    candidates = filter_control_detections(
+        detections,
+        frame_shape,
+        min_area_ratio,
+        max_area_ratio,
+        edge_margin,
+    )
 
     if target_class != "auto":
         candidates = [

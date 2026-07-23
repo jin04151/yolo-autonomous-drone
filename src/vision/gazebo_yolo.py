@@ -66,6 +66,7 @@ from basket_handoff import (
     HandoffConfig,
     VehicleState,
     downward_camera_velocity,
+    filter_control_detections,
     select_control_target,
 )
 
@@ -538,16 +539,29 @@ def main():
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], frame.shape).round()
                     for *xyxy, conf, cls in reversed(det):
                         c = int(cls)
-                        label = f"{names[c]} {conf:.2f}"
-                        annotator.box_label(xyxy, label, color=colors(c, True))
                         x1, y1, x2, y2 = [int(v) for v in xyxy]
                         detections.append({
                             "name": names[c],
                             "conf": float(conf),
+                            "class_id": c,
                             "xyxy": (x1, y1, x2, y2),
                         })
 
             now = time.time()
+            detections = filter_control_detections(
+                detections,
+                frame.shape,
+                args.control_min_area_ratio,
+                args.control_max_area_ratio,
+                args.control_edge_margin,
+            )
+            for detection in detections:
+                label = f"{detection['name']} {detection['conf']:.2f}"
+                annotator.box_label(
+                    detection["xyxy"],
+                    label,
+                    color=colors(detection["class_id"], True),
+                )
             target = select_control_target(
                 detections,
                 args.target_class,
