@@ -89,15 +89,17 @@ DISARMED
   -> Mission Planner에서 mission write
   -> ARM + AUTO
   -> waypoint flight at 0.5 m/s
-  -> 같은 target을 5 frame 연속 탐지
+  -> 유효한 target을 5 frame 연속 탐지
   -> GUIDED 요청
-  -> 가장 confidence가 높은 target 중심으로 이동
+  -> 가장 confidence가 높은 유효 target 중심으로 이동
   -> 중앙에서 1초 유지
   -> 0.2 m/s로 하강
   -> 상대고도 0.8m에서 정지
 ```
 
 현재 코드는 바구니 위에서 호버하며 자동 착륙하지 않습니다. 표적을 잃으면 수평·수직 속도 `0`을 보내고, `GUIDED`를 벗어나면 `PILOT_OVERRIDE` 상태로 들어갑니다.
+
+화면 가장자리에 닿거나 전체 면적의 20%를 넘는 detection은 제어 대상에서 제외합니다. 이는 단색 바닥이나 화면 경계를 `white_box`로 잘못 인식했을 때 자동 인계되는 것을 막는 안전 필터입니다.
 
 ## 프로젝트 구조
 
@@ -106,7 +108,7 @@ config/                  SITL 파라미터와 upstream revision
 docs/                    설치 및 운용 문서
 scripts/                 설치기, 검증기, 실행 명령
 sim/gazebo/models/       드론과 바구니 모델
-sim/gazebo/worlds/       잔디 시험 월드
+sim/gazebo/worlds/       짙은 녹색 시험 월드
 src/mavlink/             MAVLink 이륙 도구
 src/vision/              YOLO, 자동 인계, joystick bridge
 tests/                   자동 인계 단위 테스트

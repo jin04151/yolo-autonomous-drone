@@ -11,6 +11,7 @@ from basket_handoff import (
     HandoffState,
     VehicleState,
     downward_camera_velocity,
+    select_control_target,
 )
 
 
@@ -39,6 +40,30 @@ class DownwardCameraControlTest(unittest.TestCase):
         self.assertGreater(command.vy, 0.0)
         self.assertLessEqual(command.vx, self.config.max_xy_speed)
         self.assertLessEqual(command.vy, self.config.max_xy_speed)
+
+
+class ControlTargetSelectionTest(unittest.TestCase):
+    def test_rejects_frame_wide_and_edge_detections(self):
+        detections = [
+            {"name": "white_box", "conf": 0.99, "xyxy": (0, 0, 615, 480)},
+            {"name": "white_box", "conf": 0.90, "xyxy": (0, 10, 100, 80)},
+        ]
+        self.assertIsNone(select_control_target(detections, "auto", FRAME))
+
+    def test_keeps_plausible_interior_target(self):
+        expected = {
+            "name": "white_box",
+            "conf": 0.70,
+            "xyxy": (250, 200, 300, 230),
+        }
+        detections = [
+            {"name": "white_box", "conf": 0.99, "xyxy": (0, 0, 615, 480)},
+            expected,
+        ]
+        self.assertEqual(
+            select_control_target(detections, "auto", FRAME),
+            expected,
+        )
 
 
 class AutoGuidedHandoffTest(unittest.TestCase):

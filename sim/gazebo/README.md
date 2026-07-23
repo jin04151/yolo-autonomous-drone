@@ -6,7 +6,7 @@
 
 `worlds/ensamb_iris_runway.sdf`는 다음을 포함합니다.
 
-- 1500m x 1500m 잔디 ground plane
+- 1500m x 1500m 무광 짙은 녹색 ground plane
 - home `-35.363262, 149.165237`, elevation 584m
 - 드론 시작점 `(0, 0, 0.195)`, yaw 90deg
 - 흰색 basket target `(0, 4, 0)`
@@ -20,7 +20,7 @@
 | `models/ensamb_with_gimbal` | ArduPilot plugin, motor/lift-drag systems를 포함하는 wrapper |
 | `models/target_basket` | 흰색 box 표적과 동일 크기 collision |
 
-프로펠러 mesh와 잔디 texture는 `ardupilot_gazebo`의 `iris_with_standoffs`, `runway` 모델을 참조합니다. 실행 시 해당 upstream model directory가 `GZ_SIM_RESOURCE_PATH`에 있어야 하며 프로젝트 실행기가 자동 설정합니다.
+프로펠러 mesh는 `ardupilot_gazebo`의 `iris_with_standoffs` 모델을 참조합니다. 실행 시 해당 upstream model directory가 `GZ_SIM_RESOURCE_PATH`에 있어야 하며 프로젝트 실행기가 자동 설정합니다. 바닥은 영상 오탐을 줄이기 위해 texture와 반사를 사용하지 않습니다.
 
 ## 카메라
 

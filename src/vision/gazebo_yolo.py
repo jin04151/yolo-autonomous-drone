@@ -66,6 +66,7 @@ from basket_handoff import (
     HandoffConfig,
     VehicleState,
     downward_camera_velocity,
+    select_control_target,
 )
 
 
@@ -109,6 +110,9 @@ def parse_args():
     parser.add_argument("--mavlink", default="tcp:127.0.0.1:5772", help="MAVProxy hub connection for control mode")
     parser.add_argument("--mavlink-retry", type=float, default=2.0, help="seconds between MAVLink connection attempts")
     parser.add_argument("--target-class", default="auto", help="class name to track, or auto to prefer names containing basket")
+    parser.add_argument("--control-min-area-ratio", type=float, default=0.0002, help="minimum frame area ratio for a control target")
+    parser.add_argument("--control-max-area-ratio", type=float, default=0.20, help="maximum frame area ratio for a control target")
+    parser.add_argument("--control-edge-margin", type=int, default=2, help="reject control targets touching this many edge pixels")
     parser.add_argument("--control-rate", type=float, default=5.0, help="MAVLink command rate in Hz")
     parser.add_argument("--confirm-frames", type=int, default=5, help="consecutive detections required before GUIDED handoff")
     parser.add_argument("--xy-gain", type=float, default=0.6, help="horizontal velocity gain from normalized image error")
@@ -443,21 +447,6 @@ def enable_gazebo_streaming(enable_topic):
         print(f"Could not enable Gazebo camera stream: {exc}", flush=True)
 
 
-def select_control_target(detections, target_class):
-    if not detections:
-        return None
-
-    if target_class != "auto":
-        matches = [det for det in detections if det["name"] == target_class]
-        return max(matches, key=lambda det: det["conf"], default=None)
-
-    basket_matches = [det for det in detections if "basket" in det["name"].lower()]
-    if basket_matches:
-        return max(basket_matches, key=lambda det: det["conf"])
-
-    return max(detections, key=lambda det: det["conf"])
-
-
 @smart_inference_mode()
 def main():
     signal.signal(signal.SIGINT, handle_sigint)
@@ -559,7 +548,14 @@ def main():
                         })
 
             now = time.time()
-            target = select_control_target(detections, args.target_class)
+            target = select_control_target(
+                detections,
+                args.target_class,
+                frame.shape,
+                args.control_min_area_ratio,
+                args.control_max_area_ratio,
+                args.control_edge_margin,
+            )
             control_status = "detection only"
 
             if control_enabled and controller is None and now >= next_mavlink_attempt:

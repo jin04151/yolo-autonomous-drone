@@ -107,7 +107,7 @@ export YOLO_WEIGHTS="$HOME/models/best_v5.pt"
 gazebo-my-drone
 ```
 
-이 명령은 잔디 월드와 하향 카메라를 열고 카메라가 준비되면 YOLO를 자동 시작합니다. WSLg의 EGL/ZINK 문제를 피하기 위해 내부적으로 `WAYLAND_DISPLAY`를 해제합니다.
+이 명령은 무광 짙은 녹색 월드와 하향 카메라를 열고 카메라가 준비되면 YOLO를 자동 시작합니다. WSLg의 EGL/ZINK 문제를 피하기 위해 내부적으로 `WAYLAND_DISPLAY`를 해제합니다.
 
 ### 터미널 2: SITL + MAVProxy
 
@@ -210,9 +210,11 @@ YOLO controller는 다음 조건에서만 인계합니다.
 
 - armed
 - mode `AUTO`
-- 같은 target 5 frame 연속 탐지
+- 유효한 target 5 frame 연속 탐지
 
 인계 후 `GUIDED`에서 target 중심으로 최대 0.4m/s 이동하고, 중앙 1초 유지 후 0.2m/s로 하강합니다. 상대고도 0.8m에서 하강을 멈춥니다.
+
+제어 대상은 화면 가장자리에서 2px 이내에 닿지 않고, 화면 면적의 `0.02%~20%` 범위에 있는 detection만 허용합니다. 원시 YOLO 박스는 GUI에 보이더라도 이 조건을 벗어나면 `AUTO -> GUIDED` 인계와 속도 제어에는 사용되지 않습니다.
 
 ## 8. Gazebo GUI의 YOLO 화면
 

@@ -75,6 +75,48 @@ def downward_camera_velocity(target, frame_shape, config):
     return VelocityCommand(vx=vx, vy=vy), error_x, error_y
 
 
+def select_control_target(
+    detections,
+    target_class,
+    frame_shape,
+    min_area_ratio=0.0002,
+    max_area_ratio=0.20,
+    edge_margin=2,
+):
+    """Select a plausible target while rejecting frame-wide and edge artifacts."""
+    height, width = frame_shape[:2]
+    frame_area = width * height
+    candidates = []
+    for detection in detections:
+        x1, y1, x2, y2 = detection["xyxy"]
+        area_ratio = max(0, x2 - x1) * max(0, y2 - y1) / frame_area
+        touches_edge = (
+            x1 <= edge_margin
+            or y1 <= edge_margin
+            or x2 >= width - edge_margin
+            or y2 >= height - edge_margin
+        )
+        if not touches_edge and min_area_ratio <= area_ratio <= max_area_ratio:
+            candidates.append(detection)
+
+    if target_class != "auto":
+        candidates = [
+            detection
+            for detection in candidates
+            if detection["name"] == target_class
+        ]
+    else:
+        basket_candidates = [
+            detection
+            for detection in candidates
+            if "basket" in detection["name"].lower()
+        ]
+        if basket_candidates:
+            candidates = basket_candidates
+
+    return max(candidates, key=lambda detection: detection["conf"], default=None)
+
+
 class AutoGuidedHandoff:
     def __init__(self, config):
         self.config = config
